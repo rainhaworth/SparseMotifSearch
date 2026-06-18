@@ -23,14 +23,16 @@ class ShiftAlign:
     # convert to numpy byte arrays
     def __init__(self, seqs):
         self.seqs = [np.array(list(s.encode()), dtype=np.uint8) for s in seqs]
+    
+    def __len__(self):
+        return len(self.seqs)
+    
+    def __getitem__(self, idx):
+        return self.seqs[idx]
 
-    # align seqs at indices
-    def align(self, i1, i2):
-        assert i1 >= 0 and i2 >= 0 and i1 < len(self.seqs) and i2 < len(self.seqs)
-
+    # align any arbitrary seqs
+    def align_seqs(self, s1, s2):
         # explore all shifts; can only shift seqs "backward" with slicing
-        s1 = self.seqs[i1]
-        s2 = self.seqs[i2]
         best = (None,0) # motif, score
 
         # score seqs + update best shift
@@ -57,3 +59,42 @@ class ShiftAlign:
             best = update_best(best, s1_, s2_)
         
         return best
+    
+    # align by indices
+    def align_at_idx(self, i1, i2):
+        assert i1 >= 0 and i2 >= 0 and i1 < len(self.seqs) and i2 < len(self.seqs)
+        s1 = self.seqs[i1]
+        s2 = self.seqs[i2]
+        return self.align_seqs(s1, s2)
+
+# given an initialized aligner containing a batch of formatted seqs, a min size, and a min rate of occurrence, find all motifs   
+def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10):
+    assert min_count < len(batch)
+    motifs = []
+    for i in range(len(batch)-1):
+        for j in range(i+1,len(batch)):
+            # get initial candidate and set of all seqs containing an exact amtch
+            motif = batch.align_at_idx(i,j)
+            matches = set([i,j])
+            
+            # refine
+            while True:
+                if motif[1] < min_weight: break
+
+                # search for best submotif and all exact matches of current motif simultaneously
+                best_sub = (None,0)
+                for k in range(len(batch)):
+                    if k in matches: continue
+                    submotif = batch.align_seqs(motif, batch[k])
+
+                    if submotif[1] == motif[1]: matches.add(k)
+                    elif submotif[1] > best_sub[1]: best_sub = submotif
+                
+                # emit motif on meeting criteria
+                if len(matches) > min_count:
+                    motifs.append((motif[0], matches))
+                    break
+                
+                # update and continue refinement
+                motif = best_sub
+    return motifs
