@@ -10,6 +10,7 @@
 from Bio import SeqIO
 import numpy as np
 from tqdm import tqdm
+from collections import Counter
 
 
 # load from file with optional limit on # seqs, output list of strings with no metadata
@@ -81,9 +82,11 @@ class ShiftAlign:
 
 
 # given an initialized aligner containing a batch of formatted seqs, a min size, and a min rate of occurrence, find all motifs   
-def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10):
+def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10, dedup=True):
     assert min_count <= len(batch)
     motifs = []
+    
+    # O(N^3L^2 * min(N,L)) search
     t = tqdm(total=(len(batch)**2 - len(batch)) // 2)
     for i in range(len(batch)-1):
         for j in range(i+1,len(batch)):
@@ -113,12 +116,28 @@ def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10):
                 # update and continue refinement
                 motif = best_sub
     t.close()
+
+    # deduplicate
+    # TODO: if it's possible for the same motif to have different matches, aggregate all matches. otherwise this is fine
+    if dedup:
+        motifs = list(
+            set(
+                (m[0], frozenset(m[1])) for m in motifs
+                )
+            )
+
     return motifs
 
 # given list of motifs and file, append to file
 def write_motifs(fn, motifs):
     with open(fn, 'a') as f:
         for m in motifs:
+            # get weight
+            w = Counter(m[0])
+            w['-'] = 0
+            # set fields
             out = m[0] + ','
-            out += len(m[1]) #','.join(str(e) for e in m[1])
+            out += str(w.total()) + ','
+            out += str(len(m[0])) + ','
+            out += str(len(m[1])) + ',' #','.join(str(e) for e in m[1])
             f.write(out + '\n')

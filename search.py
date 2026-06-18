@@ -18,7 +18,7 @@ if __name__ == '__main__':
 
     # overwrite output file
     with open(args.o, 'w') as f:
-        f.write('motif,matches\n')
+        f.write('motif,weight,len,hits\n')
 
     # load
     seqs = utils.load(args.i, args.l)
