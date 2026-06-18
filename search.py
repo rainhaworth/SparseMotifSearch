@@ -39,7 +39,10 @@ if __name__ == '__main__':
             batch = utils.ShiftAlign(seqs_batch)
             motifs = utils.solve_batch(batch, args.w, args.c)
 
-            # TODO: verify motifs on whole dataset
+            # find hits on entire dataset
+            for i in range(len(motifs)):
+                hits = utils.find_hits(motifs[i], seqs)
+                motifs[i] = (motifs[i][0], hits)
 
             utils.write_motifs(args.o, motifs)
             print(len(motifs), 'motifs found')

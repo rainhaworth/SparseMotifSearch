@@ -11,6 +11,7 @@ from Bio import SeqIO
 import numpy as np
 from tqdm import tqdm
 from collections import Counter
+import re
 
 
 # load from file with optional limit on # seqs, output list of strings with no metadata
@@ -127,6 +128,36 @@ def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10, dedup=True):
             )
 
     return motifs
+
+# find exact matches for given motif set
+def find_hits(motif, seqs):
+    # make regex for motif
+    motif_str = motif[0]
+
+    re_str = ''
+    wildcards = 0
+    for i in range(len(motif_str)):
+        if motif_str[i] == '-': wildcards += 1
+        else:
+            if wildcards != 0:
+                re_str += '.{' + str(wildcards) + '}'
+                wildcards = 0
+            re_str += motif_str[i]
+
+    print(motif)
+    print(re_str)
+    regex = re.compile(re_str)
+    
+    # search
+    hits = set()
+    for i, s in enumerate(seqs):
+        if regex.search(s) != None:
+            hits.add(i)
+    
+    return hits
+
+
+        
 
 # given list of motifs and file, append to file
 def write_motifs(fn, motifs):
