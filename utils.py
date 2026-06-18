@@ -9,13 +9,15 @@
 
 from Bio import SeqIO
 import numpy as np
+from tqdm import tqdm
 
 
 # load from file with optional limit on # seqs, output list of strings with no metadata
 def load(fn, lim=-1):
     seqs = []
-    for rec in SeqIO.parse(fn):
-        seqs.append(rec.seq)
+    for i, rec in enumerate(SeqIO.parse(fn, 'fasta')):
+        seqs.append(str(rec.seq))
+        if lim > 0 and i == lim: break
     return seqs
 
 # simple formatting + alignment
@@ -36,7 +38,7 @@ class ShiftAlign:
         best = (None,0) # motif, score
 
         # score seqs + update best shift
-        def update_best(best, s1_, s2_):
+        def update_best(best, s1_, s2_, flag):
             match = (s1_ == s2_)
             score = np.sum(match)
             if score > best[1]:
@@ -49,14 +51,14 @@ class ShiftAlign:
             s2_ = s2[i:i+len(s1)]
             s1_ = s1[:len(s2_)]
 
-            best = update_best(best, s1_, s2_)
+            best = update_best(best, s1_, s2_, 's2')
 
         # shift s1 backward, effectively shifting s2 forward
         for i in range(len(s1)):
             s1_ = s1[i:i+len(s2)]
             s2_ = s2[:len(s1_)]
 
-            best = update_best(best, s1_, s2_)
+            best = update_best(best, s1_, s2_, 's1')
         
         return best
     
@@ -66,13 +68,26 @@ class ShiftAlign:
         s1 = self.seqs[i1]
         s2 = self.seqs[i2]
         return self.align_seqs(s1, s2)
+    
+    # convert to str (from byte array)
+    def to_str(self, s):
+        # trim
+        idxs = np.argwhere(s).squeeze()
+        s = s[idxs[0]:idxs[-1]+1]
+        # replace 0 with -
+        s = np.where(s == 0, ord('-'), s)
+        # convert to string
+        return ''.join([chr(x) for x in s])
+
 
 # given an initialized aligner containing a batch of formatted seqs, a min size, and a min rate of occurrence, find all motifs   
 def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10):
-    assert min_count < len(batch)
+    assert min_count <= len(batch)
     motifs = []
+    t = tqdm(total=(len(batch)**2 - len(batch)) // 2)
     for i in range(len(batch)-1):
         for j in range(i+1,len(batch)):
+            t.update()
             # get initial candidate and set of all seqs containing an exact amtch
             motif = batch.align_at_idx(i,j)
             matches = set([i,j])
@@ -85,16 +100,25 @@ def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10):
                 best_sub = (None,0)
                 for k in range(len(batch)):
                     if k in matches: continue
-                    submotif = batch.align_seqs(motif, batch[k])
+                    submotif = batch.align_seqs(motif[0], batch[k])
 
                     if submotif[1] == motif[1]: matches.add(k)
                     elif submotif[1] > best_sub[1]: best_sub = submotif
                 
                 # emit motif on meeting criteria
-                if len(matches) > min_count:
-                    motifs.append((motif[0], matches))
+                if len(matches) >= min_count:
+                    motifs.append((batch.to_str(motif[0]), matches))
                     break
                 
                 # update and continue refinement
                 motif = best_sub
+    t.close()
     return motifs
+
+# given list of motifs and file, append to file
+def write_motifs(fn, motifs):
+    with open(fn, 'a') as f:
+        for m in motifs:
+            out = m[0] + ','
+            out += len(m[1]) #','.join(str(e) for e in m[1])
+            f.write(out + '\n')
