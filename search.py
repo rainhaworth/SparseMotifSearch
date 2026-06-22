@@ -18,7 +18,7 @@ if __name__ == '__main__':
 
     # overwrite output file
     with open(args.o, 'w') as f:
-        f.write('motif,weight,len,hits\n')
+        f.write('motif,weight,len,hits,\n')
 
     # load
     seqs = utils.load(args.i, args.l)
@@ -36,7 +36,7 @@ if __name__ == '__main__':
         for i in range(args.n):
             print('batch', i)
             seqs_batch = random.sample(seqs, args.b)
-            batch = utils.ShiftAlign(seqs_batch)
+            batch = utils.ShiftAlignFFT(seqs_batch)
             motifs = utils.solve_batch(batch, args.w, args.c)
 
             # find hits on entire dataset

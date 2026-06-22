@@ -12,7 +12,8 @@ import numpy as np
 from tqdm import tqdm
 from collections import Counter
 import re
-
+#import torch
+from scipy.fft import next_fast_len
 
 # load from file with optional limit on # seqs, output list of strings with no metadata
 def load(fn, lim=-1):
@@ -23,6 +24,7 @@ def load(fn, lim=-1):
     return seqs
 
 # simple formatting + alignment
+# also a base/parent class; child classes should reimplement __init__, align_seqs, and to_str
 class ShiftAlign:
     # convert to numpy byte arrays
     def __init__(self, seqs):
@@ -74,12 +76,113 @@ class ShiftAlign:
     # convert to str (from byte array)
     def to_str(self, s):
         # trim
-        idxs = np.argwhere(s).squeeze()
+        idxs = np.nonzero(s)[0]
         s = s[idxs[0]:idxs[-1]+1]
         # replace 0 with -
         s = np.where(s == 0, ord('-'), s)
         # convert to string
         return ''.join([chr(x) for x in s])
+
+# shift align on GPU: convert to one-hot for fast matmul comparisons
+# TODO: port to tensorflow; efficient pytorch implementation is not feasible, too many missing features
+"""
+class ShiftAlignGPU(ShiftAlign):
+    def __init__(self, seqs):
+        # get device; no multi-GPU support for now
+        if torch.cuda.is_available():
+            dev = 'cuda:0'
+        else:
+            dev = 'cpu'
+        self.device = torch.device(dev)
+        # token mapping
+        charset = set().union(*[set(s) for s in seqs]) # list of sets of unique chars -> expand -> union
+        c2t = {k: v for k,v in zip(charset, range(1,len(charset)+1))}
+        c2t['-'] = 0
+        # tokenize -> one hot; torch doesn't have ragged tensors so store as a list of tensors of dim (L, |Sigma|+1)
+        seq_toks = [[c2t[c] for c in s] for s in seqs]
+        self.seqs = [torch.nn.functional.one_hot(torch.LongTensor(st)).half().to(self.device) for st in seq_toks]
+        # decoder for to_str
+        self.t2c = {k:v for v,k in c2t.items()}
+    
+    def align_seqs(self, s1, s2):
+        # big matmul, shape (L_1, L_2), 1 for matches and 0 for mismatches
+        algn_mat = s1 @ s2.T
+
+        # we can now find the best shift as the diagonal with the largest sum. the hard part is computing the diagonal sums efficiently
+        # torch can't retrieve all diagonals at once, so use list comprehension
+        # some other ideas:
+            # https://stackoverflow.com/a/35074207 -> replace np.indices with meshgrid
+            # modify https://stackoverflow.com/a/74120776 to work with (n,m) matrices
+        n, m = algn_mat.shape
+        offsets = torch.arange(-n+1,m)
+        diags = [torch.diagonal(algn_mat, offset=o) for o in offsets]
+        diag_sums = torch.Tensor([t.sum() for t in diags]).to(self.device)
+
+        # get best diagonal
+        best = torch.argmax(diag_sums)
+        best_offset = offsets[best]
+        best_diag = diags[best]
+
+        # retrieve motif candidate
+        if best_offset >= 0:
+            seq = s2[best_offset:best_offset+len(best_diag),:]
+        else:
+            seq = s1[-best_offset:-best_offset+len(best_diag),:]
+        # convert mismatches to token 0 (-)
+        zero_idx = torch.nonzero(1.0 - best_diag[:seq.shape[0]])
+        tok_0 = torch.zeros(seq.shape[1], dtype=torch.half, device=self.device)
+        tok_0[0] = 1.0
+        seq[zero_idx] = tok_0
+        return (seq, best_diag.sum())
+
+    def to_str(self, s : torch.Tensor):
+        s_np = s.numpy(force=True)
+        s_toks = np.nonzero(s_np)[1]
+        return ''.join(self.t2c[t] for t in s_toks)
+"""
+
+class ShiftAlignFFT(ShiftAlign):
+    def __init__(self, seqs):
+        # convert seqs to array, get unique chars
+        seqs = [np.array(list(s.encode()), dtype=np.uint8) for s in seqs]
+        self.chars = np.unique(np.concat(seqs))
+        self.chars = np.concat([np.array([ord('-')]), self.chars])
+
+        # precompute optimal FFT size 
+        maxlen = len(max(seqs, key=len))
+        self.fft_sz = next_fast_len(2*maxlen-1)
+
+        # convert all seqs to one-hots; could pre-compute FFT but this way we can guarantee exact motif retrieval
+        self.seqs = [(s[None,:] == self.chars[:,None]).astype(np.float32) for s in seqs]
+    
+    def align_seqs(self, s1, s2):
+        # cross correlate; output lags with padding are [0, 1, ..., n-1, 0, ..., 0, 1-m, 2-m, ..., -1]
+        s1_fft = np.fft.rfft(s1, self.fft_sz)
+        s2_fft = np.fft.rfft(s2, self.fft_sz)
+        xcorr = np.fft.irfft((s1_fft * s2_fft.conj()).sum(axis=0), self.fft_sz)
+
+        # get best cross correlation
+        off = np.argmax(xcorr).astype(int)
+        if off >= s1.shape[1]:
+            off -= self.fft_sz
+
+        # get shift and length
+        t1 = max(0, off)
+        t2 = max(0, -off)
+        m_len = min(s1.shape[1] - t1, s2.shape[1] - t2)
+
+        # get motif
+        motif = np.logical_and(s1[:,t1:t1+m_len],s2[:,t2:t2+m_len]).astype(np.float32)
+        return (motif, np.sum(motif).astype(int))
+
+    def to_str(self, s):
+        # get indices
+        char_idxs = s.argmax(axis=0)
+        # trim
+        nz_idxs = np.nonzero(s.sum(axis=0))[0]
+        char_idxs = char_idxs[nz_idxs[0]:nz_idxs[-1]+1]
+        # convert
+        return ''.join(chr(self.chars[c]) for c in char_idxs)
 
 
 # given an initialized aligner containing a batch of formatted seqs, a min size, and a min rate of occurrence, find all motifs   
@@ -143,9 +246,6 @@ def find_hits(motif, seqs):
                 re_str += '.{' + str(wildcards) + '}'
                 wildcards = 0
             re_str += motif_str[i]
-
-    print(motif)
-    print(re_str)
     regex = re.compile(re_str)
     
     # search
@@ -154,10 +254,7 @@ def find_hits(motif, seqs):
         if regex.search(s) != None:
             hits.add(i)
     
-    return hits
-
-
-        
+    return hits        
 
 # given list of motifs and file, append to file
 def write_motifs(fn, motifs):
