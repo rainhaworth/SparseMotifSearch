@@ -12,6 +12,7 @@ if __name__ == '__main__':
     parser.add_argument('-n', type=int, default=10) # number of batches to process
     parser.add_argument('-w', type=int, default=10) # min weight
     parser.add_argument('-c', type=int, default=8) # min count
+    parser.add_argument('--mode', default='fft', choices=['direct','fft','gpu'])
     args = parser.parse_args()
 
     random.seed(42)
@@ -20,6 +21,11 @@ if __name__ == '__main__':
     with open(args.o, 'w') as f:
         f.write('motif,weight,len,hits,\n')
 
+    match args.mode:
+        case 'direct': aligner = utils.ShiftAlign
+        case 'fft': aligner = utils.ShiftAlignFFT
+        case 'gpu': quit()
+
     # load
     seqs = utils.load(args.i, args.l)
 
@@ -27,7 +33,7 @@ if __name__ == '__main__':
     if len(seqs) <= args.b:
         print('solving exactly')
         # TODO: we should probably pass in the sequences directly along with a class then run the constructor in solve_batch
-        batch = utils.ShiftAlign(seqs)
+        batch = aligner(seqs)
         motifs = utils.solve_batch(batch, args.w, args.c)
         utils.write_motifs(args.o, motifs)
         print(len(motifs), 'motifs found')
