@@ -2,7 +2,6 @@
 import utils
 import argparse
 import random
-from tqdm import tqdm
 
 if __name__ == '__main__':
     print('made it here')
@@ -38,11 +37,9 @@ if __name__ == '__main__':
     print(len(motifs), 'motifs found')
 
     # find hits on entire dataset
-    for motif in tqdm(motifs):
-        # function expects format (motif, hits) but doesn't need hits
-        # TODO: we should really be able to process motifs in batches, would run much faster
-        hits = utils.find_hits((motif,None), seqs)
-        with open(args.o, 'a')  as f:
-            f.write(motif + ',' + str(len(hits)) + '\n')
+    hits = utils.find_hits([(motif,None) for motif in motifs], seqs)
+    with open(args.o, 'a')  as f:
+        for i in range(len(motifs)):
+            f.write(motifs[i] + ',' + str(len(hits[i])) + '\n')
 
     print('finished running')

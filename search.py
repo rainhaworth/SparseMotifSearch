@@ -29,6 +29,8 @@ if __name__ == '__main__':
     # load
     seqs = utils.load(args.i, args.l)
 
+    print(len(seqs), 'seqs loaded')
+
     # if seqs fit in one batch, solve exactly
     if len(seqs) <= args.b:
         print('solving exactly')
@@ -46,9 +48,8 @@ if __name__ == '__main__':
             motifs = utils.solve_batch(batch, args.w, args.c)
 
             # find hits on entire dataset
-            for i in range(len(motifs)):
-                hits = utils.find_hits(motifs[i], seqs)
-                motifs[i] = (motifs[i][0], hits)
+            hits = utils.find_hits(motifs, seqs)
+            motifs = [(motifs[i][0], hits[i]) for i in range(len(motifs))]
 
             utils.write_motifs(args.o, motifs)
             print(len(motifs), 'motifs found')

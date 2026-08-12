@@ -20,7 +20,7 @@ def load(fn, lim=-1):
     seqs = []
     for i, rec in enumerate(SeqIO.parse(fn, 'fasta')):
         seqs.append(str(rec.seq))
-        if lim > 0 and i == lim: break
+        if lim > 0 and i+1 == lim: break
     return seqs
 
 # simple formatting + alignment
@@ -233,28 +233,32 @@ def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10, dedup=True):
     return motifs
 
 # find exact matches for given motif set
-def find_hits(motif, seqs):
+def find_hits(motifs, seqs):
     # make regex for motif
-    motif_str = motif[0]
+    motif_strs = [motif[0] for motif in motifs]
 
-    re_str = ''
-    wildcards = 0
-    for i in range(len(motif_str)):
-        if motif_str[i] == '-': wildcards += 1
-        else:
-            if wildcards != 0:
-                re_str += '.{' + str(wildcards) + '}'
-                wildcards = 0
-            re_str += motif_str[i]
-    regex = re.compile(re_str)
+    regexes = []
+    for motif_str in motif_strs:
+        re_str = ''
+        wildcards = 0
+        for i in range(len(motif_str)):
+            if motif_str[i] == '-': wildcards += 1
+            else:
+                if wildcards != 0:
+                    re_str += '.{' + str(wildcards) + '}'
+                    wildcards = 0
+                re_str += motif_str[i]
+        regex = re.compile(re_str)
+        regexes.append(regex)
     
     # search
-    hits = set()
-    for i, s in enumerate(seqs):
-        if regex.search(s) != None:
-            hits.add(i)
+    hits = [set() for _ in regexes]
+    for i, seq in enumerate(seqs):
+        for j, regex in enumerate(regexes):
+            if regex.search(seq) != None:
+                hits[j].add(i)
     
-    return hits        
+    return hits 
 
 # given list of motifs and file, append to file
 def write_motifs(fn, motifs):
