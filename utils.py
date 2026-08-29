@@ -37,7 +37,7 @@ class ShiftAlign:
         return self.seqs[idx]
 
     # align any arbitrary seqs
-    def align_seqs(self, s1, s2):
+    def align_seqs(self, s1, s2, return_shift=False):
         # explore all shifts; can only shift seqs "backward" with slicing
         best = (None,0) # motif, score
 
@@ -83,64 +83,6 @@ class ShiftAlign:
         # convert to string
         return ''.join([chr(x) for x in s])
 
-# shift align on GPU: convert to one-hot for fast matmul comparisons
-# TODO: port to tensorflow; efficient pytorch implementation is not feasible, too many missing features
-"""
-class ShiftAlignGPU(ShiftAlign):
-    def __init__(self, seqs):
-        # get device; no multi-GPU support for now
-        if torch.cuda.is_available():
-            dev = 'cuda:0'
-        else:
-            dev = 'cpu'
-        self.device = torch.device(dev)
-        # token mapping
-        charset = set().union(*[set(s) for s in seqs]) # list of sets of unique chars -> expand -> union
-        c2t = {k: v for k,v in zip(charset, range(1,len(charset)+1))}
-        c2t['-'] = 0
-        # tokenize -> one hot; torch doesn't have ragged tensors so store as a list of tensors of dim (L, |Sigma|+1)
-        seq_toks = [[c2t[c] for c in s] for s in seqs]
-        self.seqs = [torch.nn.functional.one_hot(torch.LongTensor(st)).half().to(self.device) for st in seq_toks]
-        # decoder for to_str
-        self.t2c = {k:v for v,k in c2t.items()}
-    
-    def align_seqs(self, s1, s2):
-        # big matmul, shape (L_1, L_2), 1 for matches and 0 for mismatches
-        algn_mat = s1 @ s2.T
-
-        # we can now find the best shift as the diagonal with the largest sum. the hard part is computing the diagonal sums efficiently
-        # torch can't retrieve all diagonals at once, so use list comprehension
-        # some other ideas:
-            # https://stackoverflow.com/a/35074207 -> replace np.indices with meshgrid
-            # modify https://stackoverflow.com/a/74120776 to work with (n,m) matrices
-        n, m = algn_mat.shape
-        offsets = torch.arange(-n+1,m)
-        diags = [torch.diagonal(algn_mat, offset=o) for o in offsets]
-        diag_sums = torch.Tensor([t.sum() for t in diags]).to(self.device)
-
-        # get best diagonal
-        best = torch.argmax(diag_sums)
-        best_offset = offsets[best]
-        best_diag = diags[best]
-
-        # retrieve motif candidate
-        if best_offset >= 0:
-            seq = s2[best_offset:best_offset+len(best_diag),:]
-        else:
-            seq = s1[-best_offset:-best_offset+len(best_diag),:]
-        # convert mismatches to token 0 (-)
-        zero_idx = torch.nonzero(1.0 - best_diag[:seq.shape[0]])
-        tok_0 = torch.zeros(seq.shape[1], dtype=torch.half, device=self.device)
-        tok_0[0] = 1.0
-        seq[zero_idx] = tok_0
-        return (seq, best_diag.sum())
-
-    def to_str(self, s : torch.Tensor):
-        s_np = s.numpy(force=True)
-        s_toks = np.nonzero(s_np)[1]
-        return ''.join(self.t2c[t] for t in s_toks)
-"""
-
 class ShiftAlignFFT(ShiftAlign):
     def __init__(self, seqs):
         # convert seqs to array, get unique chars
@@ -155,8 +97,8 @@ class ShiftAlignFFT(ShiftAlign):
         # convert all seqs to one-hots; could pre-compute FFT but this way we can guarantee exact motif retrieval
         self.seqs = [(s[None,:] == self.chars[:,None]).astype(np.float32) for s in seqs]
     
-    def align_seqs(self, s1, s2):
-        # cross correlate; output lags with padding are [0, 1, ..., n-1, 0, ..., 0, 1-m, 2-m, ..., -1]
+    def align_seqs(self, s1, s2, return_shift=False):
+        # cross correlate; output lags with padding are [0, 1, ..., n-2, n-1, 0, ..., 0, 1-m, 2-m, ..., -2, -1]
         s1_fft = np.fft.rfft(s1, self.fft_sz)
         s2_fft = np.fft.rfft(s2, self.fft_sz)
         xcorr = np.fft.irfft((s1_fft * s2_fft.conj()).sum(axis=0), self.fft_sz)
@@ -166,13 +108,16 @@ class ShiftAlignFFT(ShiftAlign):
         if off >= s1.shape[1]:
             off -= self.fft_sz
 
-        # get shift and length
+        # get shifts and length
         t1 = max(0, off)
         t2 = max(0, -off)
         m_len = min(s1.shape[1] - t1, s2.shape[1] - t2)
 
         # get motif
-        motif = np.logical_and(s1[:,t1:t1+m_len],s2[:,t2:t2+m_len]).astype(np.float32)
+        motif = np.logical_and(s1[:,t1:t1+m_len], s2[:,t2:t2+m_len]).astype(np.float32)
+
+        out = (motif, np.sum(motif).astype(int))
+        if return_shift: out += (t1,)
         return (motif, np.sum(motif).astype(int))
 
     def to_str(self, s):
@@ -184,41 +129,70 @@ class ShiftAlignFFT(ShiftAlign):
         # convert
         return ''.join(chr(self.chars[c]) for c in char_idxs)
 
+# given a seq and a batch, align one vs all, count column freqs, and output a w-mer set
+def solve_seq(batch : ShiftAlign, seq : np.ndarray, min_weight=10, min_count=10):
+    aligns = [batch.align_seqs(seq, batch[i], True) for i in range(len(batch))]
+
+    col_freqs = np.zeros(seq.shape[1], np.float32)
+    for i in range(len(aligns)):
+        t = aligns[i][-1]
+        m_len = aligns[i][0].shape[1]
+        col_freqs[t:t+m_len] += aligns[i][0].sum(0)
+
+    col_valid = col_freqs >= min_count
+
+    if col_valid.sum() < min_weight: return None
+
+    # make w-mers
+    seq[:, ~col_valid] = 0.0
+    w = min_weight
+    valid_idx = np.nonzero(col_valid)[0]
+
+    seq_str = batch.to_str(seq)
+    w_mers = [seq_str[valid_idx[i]:valid_idx[i+w]] for i in range(len(valid_idx) - w + 1)]
+    return w_mers, len(w_mers)
+
+
+# given 2 indices in a batch, try to find a motif
+def solve_pair(batch : ShiftAlign, i : int, j : int, min_weight=10, min_count=10):
+    # get initial candidate and set of all seqs containing an exact match
+    motif = batch.align_at_idx(i,j)
+    matches = set([i,j])
+
+    # refine
+    while True:
+        if motif[1] < min_weight: break
+
+        # search for best submotif and all exact matches of current motif simultaneously
+        best_sub = (None,0)
+        for k in range(len(batch)):
+            if k in matches: continue
+            submotif = batch.align_seqs(motif[0], batch[k])
+
+            if submotif[1] == motif[1]: matches.add(k)
+            elif submotif[1] > best_sub[1]: best_sub = submotif
+        
+        # emit motif on meeting criteria
+        if len(matches) >= min_count:
+            return (batch.to_str(motif[0]), matches)
+        
+        # update and continue refinement
+        motif = best_sub
+
+    return None
 
 # given an initialized aligner containing a batch of formatted seqs, a min size, and a min rate of occurrence, find all motifs   
 def solve_batch(batch : ShiftAlign, min_weight=10, min_count=10, dedup=True):
     assert min_count <= len(batch)
     motifs = []
     
-    # O(N^3L^2 * min(N,L)) search
+    # O(N^3 * L log L * min(N,L)) search
     t = tqdm(total=(len(batch)**2 - len(batch)) // 2)
     for i in range(len(batch)-1):
         for j in range(i+1,len(batch)):
             t.update()
-            # get initial candidate and set of all seqs containing an exact amtch
-            motif = batch.align_at_idx(i,j)
-            matches = set([i,j])
-            
-            # refine
-            while True:
-                if motif[1] < min_weight: break
-
-                # search for best submotif and all exact matches of current motif simultaneously
-                best_sub = (None,0)
-                for k in range(len(batch)):
-                    if k in matches: continue
-                    submotif = batch.align_seqs(motif[0], batch[k])
-
-                    if submotif[1] == motif[1]: matches.add(k)
-                    elif submotif[1] > best_sub[1]: best_sub = submotif
-                
-                # emit motif on meeting criteria
-                if len(matches) >= min_count:
-                    motifs.append((batch.to_str(motif[0]), matches))
-                    break
-                
-                # update and continue refinement
-                motif = best_sub
+            motif = solve_pair(batch, i, j, min_weight, min_count)
+            if motif is not None: motifs.append(motif)
     t.close()
 
     # deduplicate
