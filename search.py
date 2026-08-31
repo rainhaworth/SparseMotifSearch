@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
     # load
     seqs = utils.load(args.i, args.l)
-    seqs_OH, chars, fft_sz = utils.prepare(seqs)
+    seqs_OH, chars = utils.prepare(seqs)
 
     print(len(seqs), 'seqs loaded')
     
@@ -57,10 +57,10 @@ if __name__ == '__main__':
                 for j in range(i+1,bsz):
                     t.update()
                     # get initial candidate and set of all seqs containing an exact match
-                    motif = utils.align(seqs_batch[i], seqs_batch[j], fft_sz)
+                    motif = utils.align(seqs_batch[i], seqs_batch[j])
                     targets = [seqs_batch[k] for k in range(bsz) if k not in {i,j}] # TODO: profiling, replace this if slow
 
-                    motif = utils.refine(motif, targets, chars, fft_sz, w, c_int)
+                    motif = utils.refine(motif, targets, chars, w, c_int)
                     if motif is not None: motifs.append(motif)
             t.close()
 
@@ -81,7 +81,7 @@ if __name__ == '__main__':
             query = seqs_OH[q_idx]
             targets = [seqs_OH[i] for i in range(len(seqs_OH)) if i != q_idx]
 
-            motifs = utils.get_w_mers(query, targets, chars, fft_sz, w, c_int)
+            motifs = utils.get_w_mers(query, targets, chars, w, c_int)
 
         motifs = list(set(motifs))
         hits = utils.find_hits(motifs, seqs)

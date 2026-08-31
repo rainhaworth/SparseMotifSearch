@@ -27,15 +27,10 @@ def prepare(seqs):
     chars = np.unique(np.concat(out_seqs))
     chars = np.concat([np.array([ord('-')]), chars])
 
-    # precompute optimal FFT size 
-    maxlen = len(max(seqs, key=len))
-    fft_sz = next_fast_len(2*maxlen-1)
-
     # convert all seqs to one-hots
-    # TODO: figure out whether we can recover shared positions in pre-computed FFTs
     out_seqs = [(s[None,:] == chars[:,None]).astype(np.float32) for s in out_seqs]
 
-    return out_seqs, chars, fft_sz
+    return out_seqs, chars
 
 # convert one hot arrays back to strs
 def to_str(s, chars, trim=True):
@@ -49,7 +44,8 @@ def to_str(s, chars, trim=True):
     return ''.join(chr(chars[c]) for c in char_idxs)
 
 # align two one hot seqs, return shared candidate motif
-def align(s1, s2, fft_sz, return_shift=False):
+def align(s1, s2, return_shift=False):
+    fft_sz = next_fast_len(len(s1) + len(s2) - 1)
     # cross correlate; output lags with padding are [0, 1, ..., n-2, n-1, 0, ..., 0, 1-m, 2-m, ..., -2, -1]
     s1_fft = np.fft.rfft(s1, fft_sz)
     s2_fft = np.fft.rfft(s2, fft_sz)
@@ -73,8 +69,8 @@ def align(s1, s2, fft_sz, return_shift=False):
     return out
 
 # given a query seq and a batch of targets, align one vs all, count column freqs, and output a w-mer set
-def get_w_mers(query, targets, chars, fft_sz, min_weight=10, min_count=10):
-    aligns = [align(query, t, fft_sz, True) for t in targets]
+def get_w_mers(query, targets, chars, min_weight=10, min_count=10):
+    aligns = [align(query, t, True) for t in targets]
 
     col_freqs = np.zeros(query.shape[1], np.float32)
     for i in range(len(aligns)):
@@ -92,7 +88,7 @@ def get_w_mers(query, targets, chars, fft_sz, min_weight=10, min_count=10):
     valid_idx = np.nonzero(col_valid)[0]
 
     seq_str = to_str(query, chars, trim=False)
-    w_mers = [seq_str[valid_idx[i]:valid_idx[i+w]+1] for i in range(len(valid_idx) - w)]
+    w_mers = [seq_str[valid_idx[i]:valid_idx[i+w-1]+1] for i in range(len(valid_idx) - w)]
     return w_mers
 
 
