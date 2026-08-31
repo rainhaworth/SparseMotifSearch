@@ -11,7 +11,7 @@ from Bio import SeqIO
 import numpy as np
 from collections import Counter
 import re
-from scipy.fft import next_fast_len
+from scipy.fft import next_fast_len, rfft, irfft
 
 # load from file with optional limit on # seqs, output list of strings with no metadata
 def load(fn, lim=-1):
@@ -45,14 +45,14 @@ def to_str(s, chars, trim=True):
 
 # align two one hot seqs, return shared candidate motif
 def align(s1, s2, return_shift=False):
-    fft_sz = next_fast_len(len(s1) + len(s2) - 1)
+    fft_sz = next_fast_len(s1.shape[1] + s2.shape[1] - 1, real=True)
     # cross correlate; output lags with padding are [0, 1, ..., n-2, n-1, 0, ..., 0, 1-m, 2-m, ..., -2, -1]
-    s1_fft = np.fft.rfft(s1, fft_sz)
-    s2_fft = np.fft.rfft(s2, fft_sz)
-    xcorr = np.fft.irfft((s1_fft * s2_fft.conj()).sum(axis=0), fft_sz)
+    s1_fft = rfft(s1, fft_sz)
+    s2_fft = rfft(s2, fft_sz)
+    xcorr = irfft((s1_fft * s2_fft.conj()).sum(axis=0), fft_sz)
 
     # get best cross correlation
-    off = np.argmax(xcorr).astype(int)
+    off = np.argmax(xcorr)
     if off >= s1.shape[1]:
         off -= fft_sz
 
@@ -64,7 +64,7 @@ def align(s1, s2, return_shift=False):
     # get motif
     motif = np.logical_and(s1[:,t1:t1+m_len], s2[:,t2:t2+m_len]).astype(np.float32)
 
-    out = (motif, np.sum(motif).astype(int))
+    out = (motif, np.sum(motif, dtype=int))
     if return_shift: out += (t1,)
     return out
 
@@ -93,7 +93,7 @@ def get_w_mers(query, targets, chars, min_weight=10, min_count=10):
 
 
 # given a query seq and a batch of targets, align one vs all repeatedly to refine into a conserved motif
-def refine(query, targets, chars, fft_sz, min_weight=10, min_count=10):
+def refine(query, targets, chars, min_weight=10, min_count=10):
     motif = query
     matches = set()
     # refine
@@ -104,7 +104,7 @@ def refine(query, targets, chars, fft_sz, min_weight=10, min_count=10):
         best_sub = (None,0)
         for i in range(len(targets)):
             if i in matches: continue
-            submotif = align(motif[0], targets[i], fft_sz)
+            submotif = align(motif[0], targets[i])
 
             if submotif[1] == motif[1]: matches.add(i)
             elif submotif[1] > best_sub[1]: best_sub = submotif

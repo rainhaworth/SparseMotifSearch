@@ -38,13 +38,14 @@ if __name__ == '__main__':
         print('not yet implemented')
 
     elif args.mode == 'dense':
-        c_int = int(args.c * args.b)
-
         # if seqs fit in one batch, solve exactly + override iters
         if len(seqs) <= bsz:
             print('solving exactly')
             bsz = len(seqs)
             iters = 1
+
+        c_int = int(args.c * bsz)
+        print(bsz, c_int)
 
         for iter in range(iters):
             print('batch', iter)
@@ -60,7 +61,8 @@ if __name__ == '__main__':
                     motif = utils.align(seqs_batch[i], seqs_batch[j])
                     targets = [seqs_batch[k] for k in range(bsz) if k not in {i,j}] # TODO: profiling, replace this if slow
 
-                    motif = utils.refine(motif, targets, chars, w, c_int)
+                    # adjust c_int to account for 2 existing matches
+                    motif = utils.refine(motif, targets, chars, w, c_int - 2)
                     if motif is not None: motifs.append(motif)
             t.close()
 
@@ -76,12 +78,14 @@ if __name__ == '__main__':
         # sparse mode
         c_int = int(args.c * len(seqs))
 
+        motifs = []
         for i in tqdm(range(iters)):
             q_idx = random.randint(0,len(seqs))
             query = seqs_OH[q_idx]
             targets = [seqs_OH[i] for i in range(len(seqs_OH)) if i != q_idx]
 
-            motifs = utils.get_w_mers(query, targets, chars, w, c_int)
+            motifs_new = utils.get_w_mers(query, targets, chars, w, c_int)
+            if motifs_new is not None: motifs += motifs_new
 
         motifs = list(set(motifs))
         hits = utils.find_hits(motifs, seqs)
