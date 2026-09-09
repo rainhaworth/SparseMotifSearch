@@ -5,7 +5,9 @@ import argparse
 import random
 from tqdm import tqdm
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import IsolationForest
 from sklearn.metrics import confusion_matrix, accuracy_score
+from search import search
 import re
 
 def mut_seqs(seqs, r=0.1):
@@ -74,10 +76,6 @@ if __name__ == '__main__':
 
     random.seed(42)
 
-    # overwrite output file
-    with open(args.o, 'w') as f:
-        f.write('motif,weight,len,hits,\n')
-
     # load
     seqs = utils.load(args.i, args.l)
 
@@ -91,57 +89,30 @@ if __name__ == '__main__':
     for i, seq in enumerate(seqs):
         if i in train_idx: seqs_train_gt.append(seq)
         else: seqs_test_gt.append(seq)
-    seqs_train_mut = mut_seqs(seqs_train_gt)
-    seqs_test_mut = mut_seqs(seqs_test_gt)
+    seqs_train_mut = mut_seqs(seqs_train_gt, args.r)
+    seqs_test_mut = mut_seqs(seqs_test_gt, args.r)
 
     print(len(seqs_train_gt), len(seqs_test_gt))
-    
-    iters = args.n
-    bsz = args.b
-    w = args.w
 
     print('finding motifs')
 
-    if args.mode == 'exact':
-        print('not yet implemented')
+    motifs = search(args.o, seqs_train_gt, args.c, args.w, args.n, args.b, args.mode)
 
-    elif args.mode == 'dense':
-        print('not yet implemented')
-    else:
-        # sparse mode
-        seqs_OH, chars = utils.prepare(seqs_train_gt)
-        c_int = int(args.c * len(seqs_OH))
+    if len(motifs) > 0:
+        print('training classifier')
 
-        motifs = []
-        for i in tqdm(range(iters)):
-            q_idx = random.randint(0,len(seqs_OH)-1)
-            query = seqs_OH[q_idx]
-            targets = [seqs_OH[i] for i in range(len(seqs_OH)) if i != q_idx]
+        def gt_mut_to_X_y(gt, mut):
+            X = find_seq_hits(gt, motifs) + find_seq_hits(mut, motifs)
+            y = [1] * len(gt) + [0] * len(mut)
+            return X, y
+        
+        X_train, y_train = gt_mut_to_X_y(seqs_train_gt, seqs_train_mut)
+        X_test, y_test = gt_mut_to_X_y(seqs_test_gt, seqs_test_mut)
 
-            motifs_new = utils.get_w_mers(query, targets, chars, w, c_int)
-            if motifs_new is not None: motifs += motifs_new
+        clf = LogisticRegression(max_iter=200)
+        clf.fit(X_train, y_train)
+        y_pred = clf.predict(X_test)
+        print(confusion_matrix(y_test, y_pred))
+        print('acc:', accuracy_score(y_test, y_pred))
 
-        motifs = list(set(motifs))
-        hits = utils.find_hits(motifs, seqs)
-
-        utils.write_motifs(args.o, zip(motifs, hits))
-        print(len(motifs), 'motifs found')
-
-
-    print('training classifier')
-
-    def gt_mut_to_X_y(gt, mut):
-        X = find_seq_hits(gt, motifs) + find_seq_hits(mut, motifs)
-        y = [1] * len(gt) + [0] * len(mut)
-        return X, y
-    
-    X_train, y_train = gt_mut_to_X_y(seqs_train_gt, seqs_train_mut)
-    X_test, y_test = gt_mut_to_X_y(seqs_test_gt, seqs_test_mut)
-
-    clf = LogisticRegression(max_iter=200)
-    clf.fit(X_train, y_train)
-    y_pred = clf.predict(X_test)
-    print(confusion_matrix(y_test, y_pred))
-    print('acc:', accuracy_score(y_test, y_pred))
-
-    print('finished running')
+        print('finished running')
