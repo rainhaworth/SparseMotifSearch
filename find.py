@@ -55,14 +55,15 @@ def search(out_path, seqs, c, w, iters=10, bsz=20, mode='dense'):
             query = seqs_OH[q_idx]
             targets = [seqs_OH[i] for i in range(len(seqs_OH)) if i != q_idx]
 
-            motifs_new = utils.get_w_mers(query, targets, chars, w, c_int)
+            motifs_new = utils.get_w_mers(query, targets, chars, w, c_int - 1)
             if motifs_new is not None: motifs += motifs_new
     
         motifs = list(set(motifs))
-    hits = utils.find_hits(motifs, seqs)
 
+    print('writing', len(motifs), 'motifs to', out_path)
+
+    hits = [[]] * len(motifs)#utils.find_hits(motifs, seqs)
     utils.write_motifs(out_path, zip(motifs, hits))
-    print(len(motifs), 'motifs found')
     return motifs
 
 

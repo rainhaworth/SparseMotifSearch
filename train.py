@@ -7,7 +7,7 @@ from tqdm import tqdm
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import confusion_matrix, accuracy_score
-from search import search
+from find import search
 import re
 
 def mut_seqs(seqs, r=0.1):
