@@ -61,17 +61,22 @@ def find_seq_hits(seqs, motifs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', type=str, default='SILVA_SSU_tiny.fasta') # input file
-    parser.add_argument('-o', type=str, default='out-motifs.csv') # output file
+    parser.add_argument('-i', type=str, default='SILVA_SSU_tiny.fasta') # input fasta path
+    parser.add_argument('-o', type=str, default='out-motifs.csv') # output motif path
     parser.add_argument('-l', type=int, default=-1) # limit on seqs to load
+
+    parser.add_argument('-a', '--algorithm', default='iterative', choices=['iterative', 'column'])
+    parser.add_argument('-c', type=float, default=0.75) # c hat (conservation target, as fraction)
+    parser.add_argument('-w', type=int, default=10) # w hat (exact or min weight)
+
+    parser.add_argument('-d', '--density', default='dense', choices=['dense', 'sparse'])
+    parser.add_argument('-n', type=int, default=10) # for sparse search: number of sequences to search over
+
+    parser.add_argument('--batch', action='store_true')
     parser.add_argument('-b', type=int, default=20) # max batch size
-    parser.add_argument('-c', type=float, default=0.75) # min conservation frac
-    parser.add_argument('-n', type=int, default=10) # number of batches to process
-    parser.add_argument('-w', type=int, default=10) # min weight
-    parser.add_argument('-r', type=float, default=0.1) # mutation rate
-    parser.add_argument('--mode', default='dense', choices=['exact', 'dense', 'sparse'])
-    # TODO: choice between refine or w_mer
-    # TODO: choice of "seed" type (seq vs pair)
+    parser.add_argument('-m', type=int, default=10) # number of batches to process
+
+    parser.add_argument('-r', '--reference', default='pair', choices=['seq', 'pair'])
     args = parser.parse_args()
 
     random.seed(42)
@@ -96,7 +101,7 @@ if __name__ == '__main__':
 
     print('finding motifs')
 
-    motifs = search(args.o, seqs_train_gt, args.c, args.w, args.n, args.b, args.mode)
+    motifs = search(seqs_train_gt, args)
 
     if len(motifs) > 0:
         print('training classifier')

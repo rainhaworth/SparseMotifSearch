@@ -4,89 +4,134 @@ import argparse
 import random
 from tqdm import tqdm
 
+# inner loop helper function; output is always list
+def find_motifs(seqlist, idxs, algo, chars, w, c_int):
+    assert 1 <= len(idxs) <= 2
+    if len(idxs) == 1: motif = seqlist[idxs[0]]
+    else: motif = utils.align(seqlist[idxs[0]], seqlist[idxs[1]])
+
+    targets = [seqlist[k] for k in range(len(seqlist)) if k not in set(idxs)] # TODO: profiling, replace this if slow
+
+    # adjust c_int to account for matches at dxs
+    return algo(motif, targets, chars, w, c_int - len(idxs))
+
 # run full search; define here for portability
-def search(out_path, seqs, c, w, iters=10, bsz=20, mode='dense'):
-    # overwrite output file
-    with open(out_path, 'w') as f:
-        f.write('motif,weight,len,hits,\n')
+def search(seqs, args):
+    # convert args to local vars + map algo choice to actual function
+    out_path = args.o
+
+    c = args.c
+    w = args.w
+    density = args.density
+    ref_type = args.reference
+    n_sparse = args.n
+
+    bsz = args.b
+    n_batch = args.m
+
+    if args.algorithm == 'iterative':
+        algo = utils.refine
+    else:
+        algo = utils.get_w_mers
+
+
+    # check some loose bounds
+    assert 0.0 <= c <= 1.0
+    assert w > 0
+    assert n_sparse > 0
+    assert bsz > 1
+    assert n_batch > 0
+
+
+    print('preprocessing')
 
     seqs_OH, chars = utils.prepare(seqs)
 
-    print(len(seqs), 'seqs loaded')
+    # if not batching or seqs all fit in one batch, adjust bsz and n_batch
+    if len(seqs) <= bsz or not args.batch:
+        bsz = len(seqs)
+        n_batch = 1
+
+    # convert c to int occurrence count
+    c_int = int(c * bsz)
+
+
+    print('finding motifs')
 
     motifs = []
+    for batch_i in range(n_batch):
+        print('batch', batch_i)
 
-    if mode == 'exact':
-        print('not yet implemented')
+        # get batch
+        if bsz == len(seqs): seqs_batch = seqs_OH
+        else: seqs_batch = random.sample(seqs_OH, bsz)
 
-    elif mode == 'dense':
-        # if seqs fit in one batch, solve exactly + override iters
-        if len(seqs) <= bsz:
-            print('solving exactly')
-            bsz = len(seqs)
-            iters = 1
-        c_int = int(c * bsz)
+        # sparse search
+        if density == 'sparse':
+            for i in tqdm(range(n_sparse)):
+                if ref_type == 'pair': idxs = random.sample(range(bsz), 2)
+                else: idxs = [random.randint(0, bsz)]
 
-        for iter in range(iters):
-            print('batch', iter)
-            seqs_batch = random.sample(seqs_OH, bsz)
+                motifs += find_motifs(seqs_batch, idxs, algo, chars, w, c_int)
 
-            t = tqdm(total=(bsz**2 - bsz) // 2)
-            for i in range(bsz-1):
-                for j in range(i+1,bsz):
-                    t.update()
-                    # get initial candidate and set of all seqs containing an exact match
-                    motif = utils.align(seqs_batch[i], seqs_batch[j])
-                    targets = [seqs_batch[k] for k in range(bsz) if k not in {i,j}] # TODO: profiling, replace this if slow
+        # dense search
+        else:
+            # easiest to use different implementations for pairwise alignment vs seq refs
+            if ref_type == 'pair':
+                t = tqdm(total=(bsz**2 - bsz) // 2)
+                for i in range(bsz-1):
+                    for j in range(i+1,bsz):
+                        t.update()
+                        motifs += find_motifs(seqs_batch, [i,j], algo, chars, w, c_int)
+                t.close()
 
-                    # adjust c_int to account for 2 existing matches
-                    motif = utils.refine(motif, targets, chars, w, c_int - 2)
-                    if motif is not None: motifs.append(motif)
-            t.close()
-            motifs = list(set(motifs))
-            print('motif subtotal:', len(motifs))
-    else:
-        # sparse mode
-        c_int = int(c * len(seqs))
+            else:
+                for i in tqdm(range(bsz)):
+                    motifs += find_motifs(seqs_batch, [i], algo, chars, w, c_int)
 
-        motifs = []
-        for i in tqdm(range(iters)):
-            q_idx = random.randint(0,len(seqs))
-            query = seqs_OH[q_idx]
-            targets = [seqs_OH[i] for i in range(len(seqs_OH)) if i != q_idx]
-
-            motifs_new = utils.get_w_mers(query, targets, chars, w, c_int - 1)
-            if motifs_new is not None: motifs += motifs_new
-    
+        # get unique motifs
         motifs = list(set(motifs))
+        print('motif subtotal:', len(motifs))
 
-    print('writing', len(motifs), 'motifs to', out_path)
+    print('retrieving', len(motifs), 'motifs and writing to', out_path)
 
-    hits = [[]] * len(motifs)#utils.find_hits(motifs, seqs)
+    hits = utils.find_hits(motifs, seqs)
+
+    # overwrite file, output header
+    with open(out_path, 'w') as f:
+        f.write('motif,weight,len,batch_hits,\n')
     utils.write_motifs(out_path, zip(motifs, hits))
     return motifs
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', type=str, default='SILVA_SSU_tiny.fasta') # input file
-    parser.add_argument('-o', type=str, default='out-motifs.csv') # output file
+    parser.add_argument('-i', type=str, default='SILVA_SSU_tiny.fasta') # input fasta path
+    parser.add_argument('-o', type=str, default='out-motifs.csv') # output motif path
     parser.add_argument('-l', type=int, default=-1) # limit on seqs to load
+
+    parser.add_argument('-a', '--algorithm', default='iterative', choices=['iterative', 'column'])
+    parser.add_argument('-c', type=float, default=0.75) # c hat (conservation target, as fraction)
+    parser.add_argument('-w', type=int, default=10) # w hat (exact or min weight)
+
+    parser.add_argument('-d', '--density', default='dense', choices=['dense', 'sparse'])
+    parser.add_argument('-n', type=int, default=10) # for sparse search: number of sequences to search over
+
+    parser.add_argument('--batch', action='store_true')
     parser.add_argument('-b', type=int, default=20) # max batch size
-    parser.add_argument('-c', type=float, default=0.75) # min conservation frac
-    parser.add_argument('-n', type=int, default=10) # number of batches to process
-    parser.add_argument('-w', type=int, default=10) # min weight
-    parser.add_argument('--mode', default='dense', choices=['exact', 'dense', 'sparse'])
-    # TODO: choice between refine or w_mer
-    # TODO: choice of "seed" type (seq vs pair)
+    parser.add_argument('-m', type=int, default=10) # number of batches to process
+
+    parser.add_argument('-r', '--reference', default='pair', choices=['seq', 'pair'])
     args = parser.parse_args()
 
     random.seed(42)
 
     # load
     seqs = utils.load(args.i, args.l)
+    print(len(seqs), 'seqs loaded')
 
-    search(args.o, seqs, args.c, args.w, args.n, args.b, args.mode) 
+    # run search
+    search(seqs, args) 
 
     print('finished running')
         

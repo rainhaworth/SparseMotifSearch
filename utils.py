@@ -70,6 +70,7 @@ def align(s1, s2, return_shift=False):
 
 # given a query seq and a batch of targets, align one vs all, count column freqs, and output a w-mer set
 def get_w_mers(query, targets, chars, min_weight=10, min_count=10):
+    if type(query) is tuple: query = query[0]
     aligns = [align(query, t, True) for t in targets]
 
     col_freqs = np.zeros(query.shape[1], np.float32)
@@ -80,7 +81,7 @@ def get_w_mers(query, targets, chars, min_weight=10, min_count=10):
 
     # find cols exceeding threshold
     col_valid = col_freqs >= min_count
-    if col_valid.sum() < min_weight: return None
+    if col_valid.sum() < min_weight: return []
 
     # make w-mers
     query[:, ~col_valid] = 0.0
@@ -94,7 +95,8 @@ def get_w_mers(query, targets, chars, min_weight=10, min_count=10):
 
 # given a query seq and a batch of targets, align one vs all repeatedly to refine into a conserved motif
 def refine(query, targets, chars, min_weight=10, min_count=10):
-    motif = query
+    if type(query) is not tuple: motif = (query, query.shape[1])
+    else: motif = query
     matches = set()
     # refine
     while True:
@@ -111,12 +113,12 @@ def refine(query, targets, chars, min_weight=10, min_count=10):
         
         # emit motif on meeting criteria
         if len(matches) >= min_count:
-            return to_str(motif[0], chars)
+            return [to_str(motif[0], chars)]
         
         # update and continue refinement
         motif = best_sub
 
-    return None
+    return []
 
 # find exact matches for given motif set
 def find_hits(motifs, seqs):
