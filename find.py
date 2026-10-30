@@ -41,6 +41,7 @@ def search(seqs, args):
     assert n_sparse > 0
     assert bsz > 1
     assert n_batch > 0
+    assert len(seqs) > 1
 
 
     print('preprocessing')
@@ -70,7 +71,7 @@ def search(seqs, args):
         if density == 'sparse':
             for i in tqdm(range(n_sparse)):
                 if ref_type == 'pair': idxs = random.sample(range(bsz), 2)
-                else: idxs = [random.randint(0, bsz)]
+                else: idxs = [random.randint(0, bsz-1)]
 
                 motifs += find_motifs(seqs_batch, idxs, algo, chars, w, c_int)
 
@@ -103,12 +104,10 @@ def search(seqs, args):
     utils.write_motifs(out_path, zip(motifs, hits))
     return motifs
 
-
-if __name__ == '__main__':
+# minimal argparse to provide all args needed for search
+def make_search_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', type=str, default='SILVA_SSU_tiny.fasta') # input fasta path
     parser.add_argument('-o', type=str, default='out-motifs.csv') # output motif path
-    parser.add_argument('-l', type=int, default=-1) # limit on seqs to load
 
     parser.add_argument('-a', '--algorithm', default='iterative', choices=['iterative', 'column'])
     parser.add_argument('-c', type=float, default=0.75) # c hat (conservation target, as fraction)
@@ -122,6 +121,12 @@ if __name__ == '__main__':
     parser.add_argument('-m', type=int, default=10) # number of batches to process
 
     parser.add_argument('-r', '--reference', default='pair', choices=['seq', 'pair'])
+    return parser
+
+if __name__ == '__main__':
+    parser = make_search_parser()
+    parser.add_argument('-i', type=str, default='SILVA_SSU_tiny.fasta') # input fasta path
+    parser.add_argument('-l', type=int, default=-1) # limit on seqs to load
     args = parser.parse_args()
 
     random.seed(42)

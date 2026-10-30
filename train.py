@@ -7,7 +7,7 @@ from tqdm import tqdm
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import confusion_matrix, accuracy_score
-from find import search
+from find import search, make_search_parser
 import re
 
 def mut_seqs(seqs, r=0.1):
@@ -59,24 +59,19 @@ def find_seq_hits(seqs, motifs):
     
     return hits 
 
+def train_test_split(seqs, split=0.7):
+    train_idx = random.sample(range(len(seqs)), int(split * len(seqs)))
+    seqs_train = []
+    seqs_test = []
+    for i, seq in enumerate(seqs):
+        if i in train_idx: seqs_train.append(seq)
+        else: seqs_test.append(seq)
+    return seqs_train, seqs_test
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+    parser = make_search_parser()
     parser.add_argument('-i', type=str, default='SILVA_SSU_tiny.fasta') # input fasta path
-    parser.add_argument('-o', type=str, default='out-motifs.csv') # output motif path
     parser.add_argument('-l', type=int, default=-1) # limit on seqs to load
-
-    parser.add_argument('-a', '--algorithm', default='iterative', choices=['iterative', 'column'])
-    parser.add_argument('-c', type=float, default=0.75) # c hat (conservation target, as fraction)
-    parser.add_argument('-w', type=int, default=10) # w hat (exact or min weight)
-
-    parser.add_argument('-d', '--density', default='dense', choices=['dense', 'sparse'])
-    parser.add_argument('-n', type=int, default=10) # for sparse search: number of sequences to search over
-
-    parser.add_argument('--batch', action='store_true')
-    parser.add_argument('-b', type=int, default=20) # max batch size
-    parser.add_argument('-m', type=int, default=10) # number of batches to process
-
-    parser.add_argument('-r', '--reference', default='pair', choices=['seq', 'pair'])
     args = parser.parse_args()
 
     random.seed(42)
@@ -86,14 +81,8 @@ if __name__ == '__main__':
 
     print(len(seqs), 'seqs loaded')
 
-    # train-test split
-    split = 0.7
-    train_idx = random.sample(range(len(seqs)), int(split * len(seqs)))
-    seqs_train_gt = []
-    seqs_test_gt = []
-    for i, seq in enumerate(seqs):
-        if i in train_idx: seqs_train_gt.append(seq)
-        else: seqs_test_gt.append(seq)
+    # train-test split -> make mutated sets
+    seqs_train_gt, seqs_test_gt = train_test_split(seqs)
     seqs_train_mut = mut_seqs(seqs_train_gt, args.r)
     seqs_test_mut = mut_seqs(seqs_test_gt, args.r)
 
