@@ -1,0 +1,9 @@
+biopython==1.85
+cudf_polars_cu13==26.8.1
+numpy==2.5.4
+pandas==3.1.1
+polars==1.42.1
+scikit_learn==1.9.1
+scipy==1.18.1
+torch==2.7.1
+tqdm==4.67.1
