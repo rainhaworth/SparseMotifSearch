@@ -1,9 +1,30 @@
 # SparseMotifSearch
-Methods for detecting sparse conserved motifs in groups of sequences
+Here, we implement our methods described in the RECOMB submission titled "Finding Rigid Sparse Motifs via Ungapped Star Alignment" in Python. Motif finding is implemented in the script `find.py`, while motif retrieval is implemented in `retrieve.py`. We also include a generic logistic regression classifier training script, `train.py`.
+
+We describe the steps required to recreate our experiments below. We have only tested our code using Python version 3.13.5 and CUDA 13. Other requirements are specified in `requirements.txt`.
 
 ## Datasets
 
-TODO
+### Proteins - UniProtKB
+
+Navigate to the `proteins` folder. Download then decompress all UniProtKB sequences retrieved by the following search queries:
+- https://www.uniprot.org/uniprotkb?query=%28gene%3ALexA%29+AND+%28protein_name%3A%22LexA+repressor%22%29&facets=reviewed%3Atrue
+- https://www.uniprot.org/uniprotkb?query=%28gene%3APGR%29
+- https://www.uniprot.org/uniprotkb?query=%28family%3ARRM+TET%29
+- https://www.uniprot.org/uniprotkb?query=%28family%3A%22Cu-Zn+superoxide+dismutase+family%22%29
+
+### 16S rRNA - SILVA SSU Ref
+
+Navigate to the `RNA` folder. Download the following files from SILVA release 138.2:
+- https://www.arb-silva.de/fileadmin/silva_databases/release_138.2/Exports/SILVA_138.2_SSURef_NR99_tax_silva.fasta.gz
+- https://www.arb-silva.de/fileadmin/silva_databases/release_138.2/Exports/full_metadata/SILVA_138.2_SSURef_Nr99.full_metadata.gz
+- https://www.arb-silva.de/fileadmin/silva_databases/release_138.2/Exports/SILVA_138.2_SSURef_tax_silva.fasta.gz
+
+### Phage phiX174
+
+Navigate to the `phage` folder. Download all complete Sinsheimervirus phiX174 genomes from NCBI GenBank, [available here](https://www.ncbi.nlm.nih.gov/datasets/genome/?taxon=10847&assembly_level=3:3). Decompress the file into the same directory, then run `collate_ncbi.py` to generate a fasta file.
+
+Download the supplementary data from King et al. 2026, "Generative design of bacteriophages with genome language models," [available here](https://www.science.org/doi/suppl/10.1126/science.aec2657/suppl_file/science.aec2657_data_s1.zip). Decompress, then extract all sequences from sheet 1 column B. Create a fasta file containing each sequence and name it `ai_phiX174.fasta`.
 
 ## Experiments
 
