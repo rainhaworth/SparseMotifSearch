@@ -1,5 +1,5 @@
 # SparseMotifSearch
-Here, we implement our methods described in the RECOMB submission titled "Finding Rigid Sparse Motifs via Ungapped Star Alignment" in Python. Motif finding is implemented in the script `find.py`, while motif retrieval is implemented in `retrieve.py`. We also include a generic logistic regression classifier training script, `train.py`.
+Here, we implement our methods described in the RECOMB submission titled "Finding Rigid Sparse Motifs via Ungapped Star Alignment" in Python. Motif finding is implemented in the script `find.py`, while motif retrieval is implemented in `retrieve.py`. Many important methods are implemented in `utils.py`. We also include a generic logistic regression classifier training script, `train.py`.
 
 We describe the steps required to recreate our experiments below. We have only tested our code using Python version 3.13.5 and CUDA 13. Other requirements are specified in `requirements.txt`.
 
@@ -19,6 +19,8 @@ Navigate to the `RNA` folder. Download the following files from SILVA release 13
 - https://www.arb-silva.de/fileadmin/silva_databases/release_138.2/Exports/SILVA_138.2_SSURef_NR99_tax_silva.fasta.gz
 - https://www.arb-silva.de/fileadmin/silva_databases/release_138.2/Exports/full_metadata/SILVA_138.2_SSURef_Nr99.full_metadata.gz
 - https://www.arb-silva.de/fileadmin/silva_databases/release_138.2/Exports/SILVA_138.2_SSURef_tax_silva.fasta.gz
+
+Decompress all files. Run `python filter_silva_seqs.py`.
 
 ### Phage phiX174
 
@@ -43,14 +45,13 @@ We include the code used to generate our figures in `proteins/figures_proteins.p
 
 ### 16S mutation detection
 
-First, filter the SSU Ref NR 99 database then find motifs with the following commands.
+First, find motifs in the filtered SSU Ref NR 99 database.
 
 ```bash
-python filter_silva_seqs.py
 python find.py -i SILVA_SSU_Ref_NR_99_tax_silva_filtered.fasta -o 16s.csv -c 0.9 --batch -b 30 -m 20
 ```
 
-We then use two dedicated scripts implementing GPU-accelerated motif retrieval for training and testing. It is possible to run these scripts without a GPU by manually setting `engine=auto` in the `get_hits` function. The final output of the testing script is the balanced accuracy and confusion matrix. Note that the training script only needs to run once, while the testing script must run three times to cover all mutation rates.
+Second, use two dedicated scripts implementing GPU-accelerated motif retrieval for training and testing. It is possible to run these scripts without a GPU by manually setting `engine=auto` in the `get_hits` function. The final output of the testing script is the balanced accuracy and confusion matrix. Note that the training script only needs to run once, while the testing script must run three times to cover all mutation rates.
 
 ```bash
 python 16s_train.py
@@ -61,10 +62,12 @@ python 16s_test.py --train SILVA_138.2_SSURef_NR99_tax_silva_filtered.fasta --te
 
 ### Evo-generated PhiX174 detection
 
-For this experiment, we use another dedicated script: `evo_crossval.py`. The commands below will run all 5 trials for each value of `w`. Each run generates one `.txt` file containing results and one `.csv` file containing motifs for each trial. The output `.txt` files contain the number of motifs found in each sequence in the training, natural test, and Evo test set on the first, second, and third lines, respectively. We label each sequence as predicted positive when the number of motifs contained matches the number of motifs found in the corresponding label. All other sequences are predicted negative. We use these labels to compute the TPR, FPR, and balanced accuracy reported in the paper.
+For this experiment, use another dedicated script: `evo_crossval.py`. The commands below will run all 5 trials for each value of `w`. Each run generates one `.txt` file containing results and one `.csv` file containing motifs for each trial. The output `.txt` files contain the number of motifs found in each sequence in the training, natural test, and Evo test set on the first, second, and third lines, respectively.
 
 ```bash
 python evo_crossval.py -a column -c 1.0 -w 20 -d sparse -r seq
 python evo_crossval.py -a column -c 1.0 -w 50 -d sparse -r seq
 python evo_crossval.py -a column -c 1.0 -w 100 -d sparse -r seq
 ```
+
+The metrics in the paper can be computed from these files with the `evo_stats.py` script.
