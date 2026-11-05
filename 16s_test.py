@@ -15,9 +15,9 @@ def get_hits(seqs, motifs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--test', type=str, default='./SILVA_138.2_SSURef_tax_silva.fasta')
-    parser.add_argument('--train', type=str, default='./SILVA_138.2_SSURef_NR99_tax_silva_filtered.fasta') # for train ids
-    parser.add_argument('-m', type=str, default='16s.csv') # motifs
+    parser.add_argument('--test', type=str, default='./RNA/SILVA_138.2_SSURef_tax_silva.fasta')
+    parser.add_argument('--train', type=str, default='./RNA/SILVA_138.2_SSURef_NR99_tax_silva_filtered.fasta') # for train ids
+    parser.add_argument('-m', type=str, default='/RNA/16s.csv') # motifs
     parser.add_argument('-c', type=str, default='clf-r0.1.pickle') # classifier binary
     parser.add_argument('-r', type=float, default=0.1) # mutation rate
     args = parser.parse_args()

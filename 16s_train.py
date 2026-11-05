@@ -16,8 +16,8 @@ def get_hits(seqs, motifs):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train', type=str, default='./SILVA_138.2_SSURef_NR99_tax_silva_filtered.fasta')
-    parser.add_argument('-m', type=str, default='./16s.csv') # output file
+    parser.add_argument('--train', type=str, default='./RNA/SILVA_138.2_SSURef_NR99_tax_silva_filtered.fasta')
+    parser.add_argument('-m', type=str, default='./RNA/16s.csv') # output file
     args = parser.parse_args()
 
     print('loading seqs and motifs')
